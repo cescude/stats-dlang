@@ -131,11 +131,30 @@ bool match(StatLine st, char[] line) {
   return true;
 }
 
+size_t hash(char[] line, size_t mask) {
+  // Simple hash lifted from dlang's API docs
+  size_t result = 0;
+  foreach (c; line) {
+    if (c < '0' || c > '9') {
+      result = (result * 9) + c;
+      result &= mask;
+    }
+  }
+  return result;
+}
+
 void main(string[] args)
 {
-  auto stats = appender!(StatLine[]);
+  Appender!(StatLine[])[256] stats_table;
+  foreach (ref Appender!(StatLine[]) stats; stats_table) {
+    stats = appender!(StatLine[]);
+  }
 
   foreach (char[] line; stdin.lines) {
+
+    size_t h = hash(line, stats_table.length-1);
+    auto stats = stats_table[h];
+
     size_t idx = find(stats[], line);
     if (idx == stats[].length) {
       stats.put(newStatLine(line));
@@ -147,6 +166,8 @@ void main(string[] args)
     writeStatLine(stats[][idx]);
   }
 
-  writeln("Unique StatLines=", stats[].length);
+  foreach (size_t h, Appender!(StatLine[]) stats; stats_table) {
+    writeln("hash=", h, " len=", stats[].length);
+  }
 }
 
