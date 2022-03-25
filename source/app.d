@@ -1,23 +1,37 @@
 import std.stdio;
 import std.array;
 import std.bigint;
+import core.checkedint;
 
 struct StatLine {
   char[] line; // line with all numbers removed
   ulong count;
-  Metric[] metrics;
+  size_t metric_idx;
+  size_t metric_count;
+  bool bigint;
 }
 
-struct Metric {
-  size_t offset; // where in the line is this placed?
+struct NativeMetric {
+  size_t offset;
   ulong min;
   ulong max;
-  BigInt sum; // for computing the average
+  ulong sum;
 }
+
+struct BigIntMetric {
+  size_t offset;
+  BigInt min;
+  BigInt max;
+  BigInt sum;
+} 
+
+auto native_metrics = appender!(NativeMetric[]);
+auto bigint_metrics = appender!(BigIntMetric[]);
 
 StatLine newStatLine(char[] line) {
   auto trimmed = appender!(char[]);
-  auto metrics = appender!(Metric[]);
+  size_t metric_idx = native_metrics[].length;
+  size_t metric_count = 0;
 
   for (size_t i=0; i<line.length; i++) {
     if (line[i] < '0' || line[i] > '9') {
@@ -25,26 +39,30 @@ StatLine newStatLine(char[] line) {
       continue;
     }
 
-    Metric m = Metric();
+    NativeMetric m = NativeMetric();
     m.offset = trimmed[].length;
+
+    ulong value = 0;
 
     // parse the number
     while (i < line.length && line[i] >= '0' && line[i] <= '9') {
-      m.max *= 10;
-      m.max += line[i] - '0';
+      value *= 10;
+      value += line[i] - '0';
       i++;
     }
 
     // We've moved beyond
     trimmed.put(line[i]);
 
-    m.min = m.max;
-    m.sum = BigInt(m.max);
+    m.min = value;
+    m.max = value;
+    m.sum = value;
     
-    metrics.put(m);
+    native_metrics.put(m);
+    metric_count++;
   }
 
-  return StatLine(trimmed[], 1, metrics[]);
+  return StatLine(trimmed[], 1, metric_idx, metric_count, false);
 }
 
 void updateStatLine(ref StatLine st, char[] line) {
@@ -52,23 +70,23 @@ void updateStatLine(ref StatLine st, char[] line) {
 
   st.count++;
 
-  size_t mt_idx = 0;
+  size_t mt_idx = st.metric_idx;
   for (size_t i=0; i<line.length; i++) {
     if (line[i] < '0' || line[i] > '9') {
       continue;
     }
 
     ulong value = 0;
+
     while (i < line.length && line[i] >= '0' && line[i] <= '9') {
       value *= 10;
       value += line[i] - '0';
       i++;
     }
 
-    st.metrics[mt_idx].sum += value;
-    st.metrics[mt_idx].min = min(st.metrics[mt_idx].min, value);
-    st.metrics[mt_idx].max = max(st.metrics[mt_idx].max, value);
-
+    native_metrics[][mt_idx].sum += value;
+    native_metrics[][mt_idx].min = min(native_metrics[][mt_idx].min, value);
+    native_metrics[][mt_idx].max = max(native_metrics[][mt_idx].max, value);
     mt_idx++;
   }
 }
@@ -77,23 +95,13 @@ size_t find(StatLine[] stats, char[] line) {
   size_t idx = 0;
   foreach (StatLine st; stats) {
     if (st.match(line)) {
+      //writeln("MATCHED");
       return idx;
     }
+    //writeln("MISSED");
     idx++;
   }
   return idx;
-}
-
-void writeStatLine(StatLine st) {
-  size_t last_offset = 0;
-
-  //write("n=", st.count, " ");
-  foreach (Metric m; st.metrics) {
-    write(st.line[last_offset..m.offset]);
-    write("[", m.min, "…", m.max, "μ", m.sum / st.count, "]");
-    last_offset = m.offset;
-  }
-  write(st.line[last_offset..$]);
 }
 
 // Make sure `line` is \n terminated!
@@ -114,7 +122,7 @@ bool match(StatLine st, char[] line) {
       continue;
     }
 
-    if (mt_idx == st.metrics.length || st.metrics[mt_idx].offset != st_idx) {
+    if (mt_idx >= st.metric_count || native_metrics[][st.metric_idx+mt_idx].offset != st_idx) {
       return false;
     }
 
@@ -129,6 +137,18 @@ bool match(StatLine st, char[] line) {
   }
 
   return true;
+}
+
+void writeStatLine(StatLine st) {
+  size_t last_offset = 0;
+
+  //write("n=", st.count, " ");
+  foreach (NativeMetric m; native_metrics[][st.metric_idx..(st.metric_idx+st.metric_count)]) {
+    write(st.line[last_offset..m.offset]);
+    write("[", m.min, "…", m.max, " μ=", m.sum / st.count, "]");
+    last_offset = m.offset;
+  }
+  write(st.line[last_offset..$]);
 }
 
 size_t hash(char[] line, size_t mask) {
@@ -163,6 +183,7 @@ void main(string[] args)
       updateStatLine(stats[][idx], line);
     }
 
+    //write("idx=", idx, " ");
     writeStatLine(stats[][idx]);
   }
 
