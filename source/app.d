@@ -87,10 +87,10 @@ size_t find(StatLine[] stats, char[] line) {
 void writeStatLine(StatLine st) {
   size_t last_offset = 0;
 
-  write("c=", st.count, " ");
+  //write("n=", st.count, " ");
   foreach (Metric m; st.metrics) {
     write(st.line[last_offset..m.offset]);
-    write("[", m.min, "...", m.max, ", avg=", m.sum / st.count, "]");
+    write("[", m.min, "…", m.max, "μ", m.sum / st.count, "]");
     last_offset = m.offset;
   }
   write(st.line[last_offset..$]);
@@ -166,8 +166,8 @@ void main(string[] args)
     writeStatLine(stats[][idx]);
   }
 
-  foreach (size_t h, Appender!(StatLine[]) stats; stats_table) {
-    writeln("hash=", h, " len=", stats[].length);
-  }
+  //foreach (size_t h, Appender!(StatLine[]) stats; stats_table) {
+  //  writeln("hash=", h, " len=", stats[].length);
+  //}
 }
 
