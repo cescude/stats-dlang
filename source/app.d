@@ -4,15 +4,15 @@ import std.bigint;
 
 struct StatLine {
   char[] line; // line with all numbers removed
-  ulong count;
+  BigInt count;
   Metric[] metrics;
 }
 
 struct Metric {
   size_t offset; // where in the line is this placed?
-  ulong min;
-  ulong max;
-  ulong sum; // for computing the average
+  BigInt min;
+  BigInt max;
+  BigInt sum; // for computing the average
 }
 
 StatLine newStatLine(char[] line) {
@@ -44,7 +44,7 @@ StatLine newStatLine(char[] line) {
     metrics.put(m);
   }
 
-  return StatLine(trimmed[], 1, metrics[]);
+  return StatLine(trimmed[], BigInt(1), metrics[]);
 }
 
 void updateStatLine(ref StatLine st, char[] line) {
@@ -58,7 +58,7 @@ void updateStatLine(ref StatLine st, char[] line) {
       continue;
     }
 
-    ulong value = 0;
+    BigInt value = 0;
     while (i < line.length && line[i] >= '0' && line[i] <= '9') {
       value *= 10;
       value += line[i] - '0';
@@ -84,13 +84,13 @@ size_t find(StatLine[] stats, char[] line) {
   return idx;
 }
 
-void writeStatLine(ref StatLine st) {
+void writeStatLine(StatLine st) {
   size_t last_offset = 0;
 
   write("c=", st.count, " ");
   foreach (Metric m; st.metrics) {
     write(st.line[last_offset..m.offset]);
-    write("[", m.min, "...", m.max, ", avg=", cast(double)m.sum / cast(double)st.count, "]");
+    write("[", m.min, "...", m.max, ", avg=", m.sum / st.count, "]");
     last_offset = m.offset;
   }
   write(st.line[last_offset..$]);
@@ -146,5 +146,7 @@ void main(string[] args)
 
     writeStatLine(stats[][idx]);
   }
+
+  writeln("Unique StatLines=", stats[].length);
 }
 
