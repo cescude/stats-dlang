@@ -4,14 +4,14 @@ import std.bigint;
 
 struct StatLine {
   char[] line; // line with all numbers removed
-  BigInt count;
+  ulong count;
   Metric[] metrics;
 }
 
 struct Metric {
   size_t offset; // where in the line is this placed?
-  BigInt min;
-  BigInt max;
+  ulong min;
+  ulong max;
   BigInt sum; // for computing the average
 }
 
@@ -30,21 +30,21 @@ StatLine newStatLine(char[] line) {
 
     // parse the number
     while (i < line.length && line[i] >= '0' && line[i] <= '9') {
-      m.sum *= 10;
-      m.sum += line[i] - '0';
+      m.max *= 10;
+      m.max += line[i] - '0';
       i++;
     }
 
     // We've moved beyond
     trimmed.put(line[i]);
 
-    m.min = m.sum;
-    m.max = m.sum;
+    m.min = m.max;
+    m.sum = BigInt(m.max);
     
     metrics.put(m);
   }
 
-  return StatLine(trimmed[], BigInt(1), metrics[]);
+  return StatLine(trimmed[], 1, metrics[]);
 }
 
 void updateStatLine(ref StatLine st, char[] line) {
@@ -58,7 +58,7 @@ void updateStatLine(ref StatLine st, char[] line) {
       continue;
     }
 
-    BigInt value = 0;
+    ulong value = 0;
     while (i < line.length && line[i] >= '0' && line[i] <= '9') {
       value *= 10;
       value += line[i] - '0';
