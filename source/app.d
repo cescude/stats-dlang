@@ -28,6 +28,14 @@ struct BigIntMetric {
 auto native_metrics = appender!(NativeMetric[]);
 auto bigint_metrics = appender!(BigIntMetric[]);
 
+void parseNative(char[] line, ref ulong value, ref size_t idx, ref bool failed) {
+  value = 0;
+  for (; idx < line.length && line[idx] >= '0' && line[idx] <= '9'; idx++) {
+    value *= 10;
+    value += line[idx] - '0';
+  }
+}
+
 StatLine newStatLine(char[] line) {
   auto trimmed = appender!(char[]);
   size_t metric_idx = native_metrics[].length;
@@ -43,16 +51,11 @@ StatLine newStatLine(char[] line) {
     m.offset = trimmed[].length;
 
     ulong value = 0;
+    bool needs_bigint = false;
 
-    // parse the number
-    while (i < line.length && line[i] >= '0' && line[i] <= '9') {
-      value *= 10;
-      value += line[i] - '0';
-      i++;
-    }
+    parseNative(line, value, i, needs_bigint);
 
-    // We've moved beyond
-    trimmed.put(line[i]);
+    i--; // Cancel out the for loop's i++ statmment
 
     m.min = value;
     m.max = value;
@@ -77,28 +80,29 @@ void updateStatLine(ref StatLine st, char[] line) {
     }
 
     ulong value = 0;
+    bool needs_bigint = false;
 
-    while (i < line.length && line[i] >= '0' && line[i] <= '9') {
-      value *= 10;
-      value += line[i] - '0';
-      i++;
-    }
+    parseNative(line, value, i, needs_bigint);
+
+    i--; // Cancel out the for loop's i++ statmment
 
     native_metrics[][mt_idx].sum += value;
     native_metrics[][mt_idx].min = min(native_metrics[][mt_idx].min, value);
     native_metrics[][mt_idx].max = max(native_metrics[][mt_idx].max, value);
+
     mt_idx++;
   }
 }
 
 size_t find(StatLine[] stats, char[] line) {
   size_t idx = 0;
+  //write("SEARCHING ", line);
   foreach (StatLine st; stats) {
     if (st.match(line)) {
       //writeln("MATCHED");
       return idx;
     }
-    //writeln("MISSED");
+    //write("MISSED ", st.line);
     idx++;
   }
   return idx;
@@ -133,7 +137,9 @@ bool match(StatLine st, char[] line) {
       i++;
     }
 
-    st_idx++;
+    i--; // Cancel out the for loop's i++ statmment
+
+    //st_idx++;
   }
 
   return true;
