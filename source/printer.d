@@ -29,6 +29,12 @@ void print(string str) {
   print(cast(char[])str);
 }
 
+void printRatio(S)(S n, S d) {
+  printNumber(n/d);
+  print(".");
+  printNumber(10*(n%d)/d);
+}
+
 void printNumber(S)(S n) {
 
   // Use format to figure out how large a size_t is (it's 20)

@@ -33,7 +33,7 @@ struct BigIntMetric {
 auto native_metrics = appender!(NativeMetric[]);
 auto bigint_metrics = appender!(BigIntMetric[]);
 
-StatLine parsy(char[] line) {
+StatLine parseLine(char[] line) {
   size_t m0 = native_metrics[].length;
   auto trimmed_line = appender!(char[]);
 
@@ -87,21 +87,18 @@ void updateMetric(NativeMetric* m, ulong value) {
   m.max = max(m.max, value);
 }
 
+// Search stats for a StatLine matching `line`. If found, returns the index. If
+// not found, returns the length of the stats slice.
 size_t find(const StatLine[] stats, char[] line) {
-  size_t idx = 0;
-  //write("SEARCHING ", line);
-  foreach (const StatLine st; stats) {
+  foreach (size_t idx, const StatLine st; stats) {
     if (st.match(line)) {
-      //writeln("MATCHED");
       return idx;
     }
-    //write("MISSED ", st.line);
-    idx++;
   }
-  return idx;
+  return stats.length;
 }
 
-// Make sure `line` is \n terminated!
+// Make sure `line` is \n terminated! Returns true if `line` matches `st`.
 bool match(const StatLine st, char[] line) {
   size_t st_idx = 0;
   size_t mt_count = st.metric_count;
@@ -136,11 +133,11 @@ bool match(const StatLine st, char[] line) {
   return true;
 }
 
-void writeStatLine(StatLine st) {
+void printStatLine(StatLine st) {
   size_t last_offset = 0;
 
   //print("n="); printNumber(st.count); print(" ");
-  foreach (NativeMetric m; native_metrics[][st.metric_idx..(st.metric_idx+st.metric_count)]) {
+  foreach (NativeMetric m; native_metrics[][st.metric_idx..st.metric_idx+st.metric_count]) {
     print(st.line[last_offset..m.offset]);
 
     if (m.min == m.max) {
@@ -152,7 +149,7 @@ void writeStatLine(StatLine st) {
       print("…");
       printNumber(m.max);
       print(" μ=");
-      printNumber(m.sum / st.count);
+      printRatio(m.sum, st.count);
       print("]");
     }
     last_offset = m.offset;
@@ -188,14 +185,14 @@ void main(string[] args)
 
     size_t idx = find(stats[], line);
     if (idx == stats[].length) {
-      stats.put(parsy(line));
+      stats.put(parseLine(line));
     }
     else {
       stats[][idx].updateStatLine(line);
     }
 
     //write("idx=", idx, " ");
-    writeStatLine(stats[][idx]);
+    printStatLine(stats[][idx]);
   }
 
   //foreach (size_t h, Appender!(StatLine[]) stats; stats_table) {
