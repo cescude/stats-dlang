@@ -1,4 +1,5 @@
 import std.stdio;
+import std.algorithm.comparison;
 import std.array;
 import std.bigint;
 import core.checkedint;
@@ -30,75 +31,64 @@ struct BigIntMetric {
 auto native_metrics = appender!(NativeMetric[]);
 auto bigint_metrics = appender!(BigIntMetric[]);
 
-void parseNative(char[] line, ref ulong value, ref size_t idx, ref bool overflow) {
-  value = 0;
-  for (; idx < line.length && line[idx] >= '0' && line[idx] <= '9'; idx++) {
-    value *= 10;
-    value += line[idx] - '0';
-  }
-}
+StatLine parsy(char[] line) {
+  size_t m0 = native_metrics[].length;
+  auto trimmed_line = appender!(char[]);
 
-StatLine newStatLine(char[] line) {
-  auto trimmed = appender!(char[]);
-  size_t metric_idx = native_metrics[].length;
-  size_t metric_count = 0;
-
-  for (size_t i=0; i<line.length; i++) {
+  for (size_t i=0; i<line.length; i++ ) {
     if (line[i] < '0' || line[i] > '9') {
-      trimmed.put(line[i]);
-      continue;
-    }
-
-    NativeMetric m = NativeMetric();
-    m.offset = trimmed[].length;
-
-    parseNative(line, m.value, i, m.overflow);
-
-    i--; // Cancel out the for loop's i++ statmment
-
-    m.min = m.value;
-    m.max = m.value;
-    m.sum = m.value;
-    
-    native_metrics.put(m);
-    metric_count++;
-  }
-
-  return StatLine(trimmed[], 1, metric_idx, metric_count);
-}
-
-void updateStatLine(ref StatLine st, char[] line) {
-  import std.algorithm.comparison;
-
-  st.count++;
-
-  size_t mt_idx = st.metric_idx;
-  for (size_t i=0; i<line.length; i++) {
-    if (line[i] < '0' || line[i] > '9') {
+      trimmed_line.put(line[i]);
       continue;
     }
 
     ulong value = 0;
-    bool overflow = false;
+    while (line[i] >= '0' && line[i] <= '9') {
+      value *= 10;
+      value += line[i++] - '0';
+    }
+    native_metrics.put(NativeMetric(
+      trimmed_line[].length, value, value, value, value, false
+    ));
 
-    parseNative(line, value, i, overflow);
+    trimmed_line.put(line[i]);
+  }
 
-    i--; // Cancel out the for loop's i++ statmment
+  return StatLine(trimmed_line[], 1, m0, native_metrics[].length - m0);
+}
 
-    native_metrics[][mt_idx].overflow = overflow;
-    native_metrics[][mt_idx].value = value;
-    native_metrics[][mt_idx].sum += value;
-    native_metrics[][mt_idx].min = min(native_metrics[][mt_idx].min, value);
-    native_metrics[][mt_idx].max = max(native_metrics[][mt_idx].max, value);
+void updateStatLine(ref StatLine st, char[] line) {
 
-    mt_idx++;
+  st.count++;
+
+  NativeMetric* m = &native_metrics[][st.metric_idx];
+
+  for (size_t i=0; i<line.length; i++) {
+    if (line[i] < '0' || line[i] > '9') continue;
+
+    ulong value = 0;
+    while (line[i] >= '0' && line[i] <= '9') {
+      value *= 10;
+      value += line[i++] - '0';
+    }
+    updateMetric(m++, value);
+
+    // Don't need to backtrack here, we know it's not a number and that's
+    // really all we care about here...
+    //i -= 1;
   }
 }
 
-size_t find(StatLine[] stats, char[] line) {
+void updateMetric(NativeMetric* m, ulong value) {
+  m.value = value;
+  m.sum += value;
+  m.min = min(m.min, value);
+  m.max = max(m.max, value);
+}
+
+size_t find(const StatLine[] stats, char[] line) {
   size_t idx = 0;
   //write("SEARCHING ", line);
-  foreach (StatLine st; stats) {
+  foreach (const StatLine st; stats) {
     if (st.match(line)) {
       //writeln("MATCHED");
       return idx;
@@ -110,37 +100,35 @@ size_t find(StatLine[] stats, char[] line) {
 }
 
 // Make sure `line` is \n terminated!
-bool match(StatLine st, char[] line) {
+bool match(const StatLine st, char[] line) {
   size_t st_idx = 0;
-  size_t mt_idx = 0;
-  bool parsing_number = false;
+  size_t mt_count = st.metric_count;
+  NativeMetric* m = &native_metrics[][st.metric_idx];
 
   for (size_t i=0; i<line.length; i++) {
-    //writeln(line[i], "<>", st.line[st_idx]);
-    
+
     if (line[i] < '0' || line[i] > '9') {
-      if (st.line[st_idx] != line[i]) {
+      if (line[i] != st.line[st_idx++]) {
         return false;
       }
-      
-      st_idx++;
       continue;
     }
 
-    if (mt_idx >= st.metric_count || native_metrics[][st.metric_idx+mt_idx].offset != st_idx) {
+    if (mt_count-- == 0) {
       return false;
     }
 
-    mt_idx++;
+    if (m++.offset != st_idx) {
+      return false;
+    }
 
-    // skip past the number in `line`
-    while (i<line.length && line[i] >= '0' && line[i] <= '9') {
+    while (line[i] >= '0' && line[i] <= '9') {
       i++;
     }
 
-    i--; // Cancel out the for loop's i++ statmment
-
-    //st_idx++;
+    if (line[i] != st.line[st_idx++]) {
+      return false;
+    }
   }
 
   return true;
@@ -152,7 +140,12 @@ void writeStatLine(StatLine st) {
   //write("n=", st.count, " ");
   foreach (NativeMetric m; native_metrics[][st.metric_idx..(st.metric_idx+st.metric_count)]) {
     write(st.line[last_offset..m.offset]);
-    write(m.value, "[", m.min, "…", m.max, " μ=", m.sum / st.count, "]");
+
+    if (m.min == m.max) {
+      write(m.value);
+    } else {
+      write(m.value, "[", m.min, "…", m.max, " μ=", m.sum / st.count, "]");
+    }
     last_offset = m.offset;
   }
   write(st.line[last_offset..$]);
@@ -184,10 +177,10 @@ void main(string[] args)
 
     size_t idx = find(stats[], line);
     if (idx == stats[].length) {
-      stats.put(newStatLine(line));
+      stats.put(parsy(line));
     }
     else {
-      updateStatLine(stats[][idx], line);
+      stats[][idx].updateStatLine(line);
     }
 
     //write("idx=", idx, " ");
