@@ -4,6 +4,8 @@ import std.array;
 import std.bigint;
 import core.checkedint;
 
+import printer;
+
 struct StatLine {
   char[] line; // line with all numbers removed
   ulong count;
@@ -137,18 +139,27 @@ bool match(const StatLine st, char[] line) {
 void writeStatLine(StatLine st) {
   size_t last_offset = 0;
 
-  //write("n=", st.count, " ");
+  //print("n="); printNumber(st.count); print(" ");
   foreach (NativeMetric m; native_metrics[][st.metric_idx..(st.metric_idx+st.metric_count)]) {
-    write(st.line[last_offset..m.offset]);
+    print(st.line[last_offset..m.offset]);
 
     if (m.min == m.max) {
-      write(m.value);
+      printNumber(m.value);
     } else {
-      write(m.value, "[", m.min, "…", m.max, " μ=", m.sum / st.count, "]");
+      printNumber(m.value);
+      print("[");
+      printNumber(m.min);
+      print("…");
+      printNumber(m.max);
+      print(" μ=");
+      printNumber(m.sum / st.count);
+      print("]");
     }
     last_offset = m.offset;
   }
-  write(st.line[last_offset..$]);
+  //write(st.line[last_offset..$]);
+  print(st.line[last_offset..$]);
+  flush();
 }
 
 size_t hash(char[] line, size_t mask) {
