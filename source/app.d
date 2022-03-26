@@ -8,18 +8,20 @@ struct StatLine {
   ulong count;
   size_t metric_idx;
   size_t metric_count;
-  bool bigint;
 }
 
 struct NativeMetric {
   size_t offset;
+  ulong value;
   ulong min;
   ulong max;
   ulong sum;
+  bool overflow; // PLAN: if true, look in the bigint_metrics array?
 }
 
 struct BigIntMetric {
   size_t offset;
+  BigInt value;
   BigInt min;
   BigInt max;
   BigInt sum;
@@ -28,7 +30,7 @@ struct BigIntMetric {
 auto native_metrics = appender!(NativeMetric[]);
 auto bigint_metrics = appender!(BigIntMetric[]);
 
-void parseNative(char[] line, ref ulong value, ref size_t idx, ref bool failed) {
+void parseNative(char[] line, ref ulong value, ref size_t idx, ref bool overflow) {
   value = 0;
   for (; idx < line.length && line[idx] >= '0' && line[idx] <= '9'; idx++) {
     value *= 10;
@@ -50,22 +52,19 @@ StatLine newStatLine(char[] line) {
     NativeMetric m = NativeMetric();
     m.offset = trimmed[].length;
 
-    ulong value = 0;
-    bool needs_bigint = false;
-
-    parseNative(line, value, i, needs_bigint);
+    parseNative(line, m.value, i, m.overflow);
 
     i--; // Cancel out the for loop's i++ statmment
 
-    m.min = value;
-    m.max = value;
-    m.sum = value;
+    m.min = m.value;
+    m.max = m.value;
+    m.sum = m.value;
     
     native_metrics.put(m);
     metric_count++;
   }
 
-  return StatLine(trimmed[], 1, metric_idx, metric_count, false);
+  return StatLine(trimmed[], 1, metric_idx, metric_count);
 }
 
 void updateStatLine(ref StatLine st, char[] line) {
@@ -80,12 +79,14 @@ void updateStatLine(ref StatLine st, char[] line) {
     }
 
     ulong value = 0;
-    bool needs_bigint = false;
+    bool overflow = false;
 
-    parseNative(line, value, i, needs_bigint);
+    parseNative(line, value, i, overflow);
 
     i--; // Cancel out the for loop's i++ statmment
 
+    native_metrics[][mt_idx].overflow = overflow;
+    native_metrics[][mt_idx].value = value;
     native_metrics[][mt_idx].sum += value;
     native_metrics[][mt_idx].min = min(native_metrics[][mt_idx].min, value);
     native_metrics[][mt_idx].max = max(native_metrics[][mt_idx].max, value);
@@ -151,7 +152,7 @@ void writeStatLine(StatLine st) {
   //write("n=", st.count, " ");
   foreach (NativeMetric m; native_metrics[][st.metric_idx..(st.metric_idx+st.metric_count)]) {
     write(st.line[last_offset..m.offset]);
-    write("[", m.min, "…", m.max, " μ=", m.sum / st.count, "]");
+    write(m.value, "[", m.min, "…", m.max, " μ=", m.sum / st.count, "]");
     last_offset = m.offset;
   }
   write(st.line[last_offset..$]);
