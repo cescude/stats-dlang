@@ -3,6 +3,7 @@ module printer;
 import std.stdio;
 import std.array;
 import std.exception;
+import std.bigint;
 
 char[4096] writeBuffer;
 size_t writeBufferLength = 0;
@@ -29,10 +30,20 @@ void print(string str) {
   print(cast(char[])str);
 }
 
+void printBigIntRatio(BigInt n, BigInt d) {
+  printBigInt(n/d);
+  print(".");
+  printBigInt(10 * (n%d) / d);
+}
+
 void printRatio(S)(S n, S d) {
   printNumber(n/d);
   print(".");
   printNumber(10*(n%d)/d);
+}
+
+void printBigInt(BigInt b) {
+  print(b.toDecimalString());
 }
 
 void printNumber(S)(S n) {
