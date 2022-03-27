@@ -60,7 +60,7 @@ StatLine createStatLine(char[] line) {
 
     if (overflow) {
       NativeMetric* m = &native_metrics[][$-1];
-      overflowMetric(m, BigInt(0), bigint_value, bigint_value);
+      extendMetric(m, BigInt(0), bigint_value, bigint_value);
       updateBigIntMetric(m, bigint_value);
     }
 
@@ -87,7 +87,7 @@ void updateStatLine(ref StatLine st, char[] line) {
     i = scanNumber(line, i, value, bigint_value, overflow);
 
     if ( overflow ) {
-      overflowMetric(m, BigInt(m.sum), BigInt(m.min), BigInt(m.max)); 
+      extendMetric(m, BigInt(m.sum), BigInt(m.min), BigInt(m.max)); 
       updateBigIntMetric(m, bigint_value);
     }
     else {
@@ -103,6 +103,10 @@ void updateStatLine(ref StatLine st, char[] line) {
 }
 
 void updateNativeMetric(NativeMetric* m, ulong value) {
+
+  // We know value fits into a ulong, but the metric sum may overflow. As such,
+  // we need to handle extending into a BigIntMetric...
+
   bool overflow = false;
 
   m.value = value;
@@ -111,7 +115,7 @@ void updateNativeMetric(NativeMetric* m, ulong value) {
   //if (sum > CUTOFF) overflow = true;
 
   if ( overflow ) {
-    overflowMetric(m, BigInt(m.sum), BigInt(m.min), BigInt(m.max));
+    extendMetric(m, BigInt(m.sum), BigInt(m.min), BigInt(m.max));
     updateBigIntMetric(m, BigInt(value));
   }
   else {
@@ -128,7 +132,7 @@ void updateBigIntMetric(NativeMetric* m, BigInt value) {
   m.overflow.max = max(m.overflow.max, value);
 }
 
-void overflowMetric(NativeMetric* m, BigInt sum, BigInt min, BigInt max) {
+void extendMetric(NativeMetric* m, BigInt sum, BigInt min, BigInt max) {
   if ( m.overflow !is null ) return; // TODO: should this be an assert?
   bigint_metrics.put(BigIntMetric());
   m.overflow = &bigint_metrics[][$-1];
