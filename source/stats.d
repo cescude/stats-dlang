@@ -1,5 +1,6 @@
 module stats;
 
+import std.stdio;
 import std.algorithm.comparison;
 import std.array;
 import std.bigint;
@@ -71,6 +72,39 @@ StatLine createStatLine(char[] line) {
   return StatLine(trimmed_line[], 1, m0, native_metrics[].length - m0);
 }
 
+unittest {
+  import std.format;
+
+  native_metrics.clear();
+  bigint_metrics.clear();
+
+  StatLine st0 = createStatLine(cast(char[])"one 123 two 234\n");
+  assert(st0.line == cast(char[])"one  two \n");
+  assert(st0.metric_idx == 0);
+  assert(st0.metric_count == 2);
+  assert(native_metrics[][0].offset == 4);
+  assert(native_metrics[][0].value == 123);
+  assert(native_metrics[][0].overflow is null);
+  assert(native_metrics[][1].offset == 9);
+  assert(native_metrics[][1].value == 234);
+  assert(native_metrics[][1].overflow is null);
+
+  StatLine st1 = createStatLine(cast(char[])"no numbers\n");
+  assert(st1.line == cast(char[])"no numbers\n");
+  assert(st1.metric_count == 0);
+
+  // If the number is too large to fit in a ulong, it should be extended into a bigint
+  StatLine st2 = createStatLine(cast(char[])format("something 1%d\n", ulong.max));
+  assert(st2.line == cast(char[])"something \n");
+  assert(st2.metric_count == 1);
+  NativeMetric* m = &native_metrics[][st2.metric_idx];
+  assert(m.offset == 10);
+
+  // Numeric data is stored in the "overflow" structure
+  assert(m.overflow !is null);
+  assert(m.overflow.value == BigInt(format("1%d", ulong.max)));
+}
+
 // Folds the data from `line` into the metrics associated w/ `st`
 void updateStatLine(ref StatLine st, char[] line) {
 
@@ -103,6 +137,45 @@ void updateStatLine(ref StatLine st, char[] line) {
   }
 }
 
+unittest {
+  import std.format;
+
+  NativeMetric m;
+
+  native_metrics.clear();
+  bigint_metrics.clear();
+
+  StatLine st = createStatLine(cast(char[])format("one %d two %d\n", ulong.max, 2));
+
+  m = native_metrics[][st.metric_idx];
+  assert(m.offset == 4);
+  assert(m.value == ulong.max);
+  assert(m.overflow is null);
+
+  m = native_metrics[][st.metric_idx+1];
+  assert(m.offset == 9);
+  assert(m.value == 2);
+  assert(m.overflow is null);
+  
+  // The first metric will overflow and be extended, the second one will stay
+  // as a ulong.
+  updateStatLine(st, cast(char[])format("one %d two %d\n", 100, 10));
+
+  m = native_metrics[][st.metric_idx];
+  assert(m.overflow !is null);
+  assert(m.overflow.value == BigInt(100));
+  assert(m.overflow.sum == (BigInt(format("%d", ulong.max)) + 100));
+  assert(m.overflow.min == BigInt(100));
+  assert(m.overflow.max == BigInt(format("%d", ulong.max)));
+
+  m = native_metrics[][st.metric_idx+1];
+  assert(m.overflow is null);
+  assert(m.value == 10);
+  assert(m.sum == 12);
+  assert(m.min == 2);
+  assert(m.max == 10);
+}
+
 void updateNativeMetric(NativeMetric* m, ulong value) {
 
   // We know value fits into a ulong, but the metric sum may overflow. As such,
@@ -111,7 +184,7 @@ void updateNativeMetric(NativeMetric* m, ulong value) {
   bool overflow = false;
 
   m.value = value;
-  ulong sum = adds(m.sum, value, overflow);
+  ulong sum = addu(m.sum, value, overflow);
 
   //if (sum > CUTOFF) overflow = true;
 
@@ -144,21 +217,19 @@ void extendMetric(NativeMetric* m, BigInt sum, BigInt min, BigInt max) {
 
 // returns how far to push the index variable
 size_t scanNumber(const char[] line, size_t line_idx, ref ulong v, ref BigInt b, ref bool use_bigint) {
-
   size_t i = line_idx;
 
   if ( !use_bigint ) {
 
     v = 0;
     for (; line[i] >= '0' && line[i] <= '9'; i++) {
-      v = muls(v, 10, use_bigint);
+      v = mulu(v, 10, use_bigint);
 
       //if (v > CUTOFF) use_bigint = true;
 
-      v = adds(v, line[i] - '0', use_bigint);
+      v = addu(v, line[i] - '0', use_bigint);
 
       //if (v > CUTOFF) use_bigint = true;
-
       if ( use_bigint ) {
         return scanNumber(line, line_idx, v, b, use_bigint);
       }
@@ -173,6 +244,34 @@ size_t scanNumber(const char[] line, size_t line_idx, ref ulong v, ref BigInt b,
   }
 
   return i;
+}
+
+unittest {
+  import std.format;
+
+  char[] line;
+  ulong value;
+  BigInt bigint_value;
+  bool use_bigint;
+  size_t idx;
+
+  line = cast(char[])format("one %d\n", ubyte.max);
+  idx = scanNumber(line, 4, value, bigint_value, use_bigint);
+  assert(line[idx] == '\n');
+  assert(value == ubyte.max);
+  assert(use_bigint == false);
+
+  line = cast(char[])format("one %d\n", ulong.max);
+  idx = scanNumber(line, 4, value, bigint_value, use_bigint);
+  assert(line[idx] == '\n');
+  assert(value == ulong.max);
+  assert(use_bigint == false);
+
+  line = cast(char[])format("one %d0\n", ulong.max);
+  idx = scanNumber(line, 4, value, bigint_value, use_bigint);
+  assert(line[idx] == '\n');
+  assert(bigint_value == BigInt(format("%d0", ulong.max)));
+  assert(use_bigint == true);
 }
 
 // Search stats for a StatLine matching `line`. If found, returns the index. If
@@ -228,5 +327,11 @@ bool match(const StatLine st, char[] line) {
   }
 
   return true;
+}
+
+unittest {
+  StatLine st = createStatLine(cast(char[])"one 123 two 234\n");
+  assert(match(st, cast(char[])"one 2 two 3333333333\n"));
+  assert(!match(st, cast(char[])"one 2!two 33333333333\n"));
 }
 

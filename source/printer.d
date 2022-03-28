@@ -33,9 +33,13 @@ void print(string str) {
 }
 
 void printBigIntRatio(BigInt n, BigInt d) {
-  printBigInt(n/d);
+  BigInt q, r;
+
+  divMod(n, d, q, r);
+
+  printBigInt(q);
   print(".");
-  printBigInt(10 * (n%d) / d);
+  printBigInt(10 * r / d);
 }
 
 void printRatio(S)(S n, S d) {
