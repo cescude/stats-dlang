@@ -8,22 +8,25 @@ import core.checkedint;
 
 import printer;
 
-//immutable ulong CUTOFF = 1000000;//ulong.max-1;
-
 struct StatLine {
-  char[] line; // line with all numbers removed
-  ulong count;
+  char[] line;			// line with all numbers removed
+  ulong count;			// number of times this StatLine has been seen
   size_t metric_idx;
   size_t metric_count;
 }
 
 struct NativeMetric {
-  size_t offset;
-  ulong value;
-  ulong min;
-  ulong max;
-  ulong sum;
-  BigIntMetric* overflow; // If non-null, use this for the value/min/max/sum
+  size_t offset;		// how far into ^^line^^ this metric should be printed
+  ulong value;			// last read value, updated with each read
+  ulong min;			// minimum value found
+  ulong max;			// ...
+  ulong sum;			// used to compute average (sum/count)
+
+  // If any of the above ulongs overflow (most likely `sum`,
+  // though...), we switch over and store the data in the following
+  // `overflow` structure.
+  
+  BigIntMetric* overflow;	// non-null in the case of overflow
 }
 
 struct BigIntMetric {
@@ -186,8 +189,6 @@ void updateNativeMetric(NativeMetric* m, ulong value) {
   m.value = value;
   ulong sum = addu(m.sum, value, overflow);
 
-  //if (sum > CUTOFF) overflow = true;
-
   if ( overflow ) {
     extendMetric(m, BigInt(m.sum), BigInt(m.min), BigInt(m.max));
     updateBigIntMetric(m, BigInt(value));
@@ -207,7 +208,7 @@ void updateBigIntMetric(NativeMetric* m, BigInt value) {
 }
 
 void extendMetric(NativeMetric* m, BigInt sum, BigInt min, BigInt max) {
-  if ( m.overflow !is null ) return; // TODO: should this be an assert?
+  if ( m.overflow !is null ) return;
   bigint_metrics.put(BigIntMetric());
   m.overflow = &bigint_metrics[][$-1];
   m.overflow.sum = sum;
@@ -215,7 +216,17 @@ void extendMetric(NativeMetric* m, BigInt sum, BigInt min, BigInt max) {
   m.overflow.max = max;
 }
 
-// returns how far to push the index variable
+// Reads a number from the `line` starting at `line_idx`. Returns the
+// index just beyond the scanned digits.
+//
+// When `use_bigint` is true, `v` is ignored and the scanned number is
+// stored in `b`.
+//
+// When `use_bigint` is false AND the scanned number fits in `v`, `b`
+// is ignored.
+//
+// WHen `use_bigint` is false AND the scanned number doesn't fit in
+// `v`, `use_bigint` is set to true and `b` holds the value.
 size_t scanNumber(const char[] line, size_t line_idx, ref ulong v, ref BigInt b, ref bool use_bigint) {
   size_t i = line_idx;
 
@@ -224,15 +235,11 @@ size_t scanNumber(const char[] line, size_t line_idx, ref ulong v, ref BigInt b,
     v = 0;
     for (; line[i] >= '0' && line[i] <= '9'; i++) {
       v = mulu(v, 10, use_bigint);
-
-      //if (v > CUTOFF) use_bigint = true;
-
       v = addu(v, line[i] - '0', use_bigint);
+    }
 
-      //if (v > CUTOFF) use_bigint = true;
-      if ( use_bigint ) {
-        return scanNumber(line, line_idx, v, b, use_bigint);
-      }
+    if ( use_bigint ) {
+      return scanNumber(line, line_idx, v, b, use_bigint);
     }
 
     return i;
@@ -256,21 +263,32 @@ unittest {
   size_t idx;
 
   line = cast(char[])format("one %d\n", ubyte.max);
+  use_bigint = false;
   idx = scanNumber(line, 4, value, bigint_value, use_bigint);
   assert(line[idx] == '\n');
   assert(value == ubyte.max);
   assert(use_bigint == false);
 
   line = cast(char[])format("one %d\n", ulong.max);
+  use_bigint = false;
   idx = scanNumber(line, 4, value, bigint_value, use_bigint);
   assert(line[idx] == '\n');
   assert(value == ulong.max);
   assert(use_bigint == false);
 
   line = cast(char[])format("one %d0\n", ulong.max);
+  use_bigint = false;
   idx = scanNumber(line, 4, value, bigint_value, use_bigint);
   assert(line[idx] == '\n');
   assert(bigint_value == BigInt(format("%d0", ulong.max)));
+  assert(use_bigint == true);
+
+  string num = format("%d%d%d", ulong.max, ulong.max, ulong.max);
+  line = cast(char[])format("one %s\n", num);
+  use_bigint = false;
+  idx = scanNumber(line, 4, value, bigint_value, use_bigint);
+  assert(line[idx] == '\n');
+  assert(bigint_value == BigInt(num));
   assert(use_bigint == true);
 }
 
